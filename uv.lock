@@ -110,8 +110,8 @@ wheels = [
 ]
 
 [[package]]
-name = "yaaf"
-version = "0.1.0"
+name = "yaafcli"
+version = "2026.2.4"
 source = { editable = "." }
 dependencies = [
     { name = "uvicorn" },

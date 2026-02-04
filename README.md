@@ -145,6 +145,14 @@ async def get(request: Request, service: HelloService):
 yaaf --app your_package.app:app
 ```
 
+## Versioning
+
+This project uses calendar-based versions with a timestamp (UTC). To bump the version:
+
+```bash
+python scripts/bump_version.py
+```
+
 ## Service Type Generation
 
 Every `yaaf` command regenerates `consumers/services.py` for type-checking. You can also run it explicitly:
