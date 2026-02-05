@@ -29,9 +29,22 @@ class ServiceRegistry:
         """Resolve a service by type annotation."""
         if isinstance(annotation, str):
             return self.by_alias.get(annotation)
-        if annotation and annotation in self.by_type:
-            return self.by_type[annotation]
         if annotation is not None:
+            # Direct type match
+            if annotation in self.by_type:
+                return self.by_type[annotation]
+            
+            # Check for protocol/base class relationships
+            for registered_type, instance in self.by_type.items():
+                try:
+                    # Check if registered type is a subclass of the annotation
+                    if issubclass(registered_type, annotation):
+                        return instance
+                except (TypeError, AttributeError):
+                    # Handle cases where issubclass fails (e.g., for Protocol types)
+                    pass
+            
+            # Try to resolve by name as fallback
             alias = getattr(annotation, "__name__", "")
             if alias and alias in self.by_alias:
                 return self.by_alias[alias]
