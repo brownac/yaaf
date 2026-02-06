@@ -28,15 +28,11 @@ async def test_route_without_service_file(tmp_path: Path) -> None:
     
     # Only write _server.py, NO _service.py
     (base / "_server.py").write_text(
-        "from yaaf import Request
-"
-        "async def get(request: Request):
-"
-        "    return {'message': 'ok without service'}
-"
+        "from yaaf import Request\n"
+        "async def get(request: Request):\n"
+        "    return {'message': 'ok without service'}\n"
     )
-    (tmp_path / "consumers" / "api" / "__init__.py").write_text("# package
-")
+    (tmp_path / "consumers" / "api" / "__init__.py").write_text("# package\n")
 
     app = App(consumers_dir=str(tmp_path / "consumers"))
 
