@@ -30,7 +30,17 @@ class RouteTarget:
 
 def _load_module(path: Path, name_prefix: str) -> ModuleType:
     """Load a Python module from an explicit file path."""
-    module_name = f"yaaf_{name_prefix}_{abs(hash(path))}"
+    # Convert the file path to a module path relative to the consumers directory
+    # This preserves the original module path for type annotation compatibility
+    parts = path.parts
+    if "consumers" in parts:
+        consumers_index = parts.index("consumers")
+        module_parts = parts[consumers_index:]
+        module_name = ".".join(module_parts[:-1] + (path.stem,))
+    else:
+        # Fallback to hashed name if not in consumers directory
+        module_name = f"yaaf_{name_prefix}_{abs(hash(path))}"
+    
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Could not load module from {path}")
@@ -188,7 +198,12 @@ def _service_alias(route_parts: list[str]) -> str:
             return segment[1:-1]
         return segment
 
+    def camel_case(parts: list[str]) -> str:
+        return "".join(
+            sub[:1].upper() + sub[1:] for part in parts if part for sub in part.split("_") if sub
+        )
+
     parts = [strip_dynamic(part) for part in route_parts]
     safe = [part for part in parts if part.isidentifier()]
-    base = "".join(part[:1].upper() + part[1:] for part in safe) or "Route"
+    base = camel_case(safe) or "Route"
     return f"{base}Service"
