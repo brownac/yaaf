@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "yaafcli"
-version = "2026.02.05.015101"
+version = "2026.02.06.022353"
 description = "Minimal ASGI app scaffold"
 readme = "README.md"
 requires-python = ">=3.13"
