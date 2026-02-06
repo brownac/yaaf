@@ -54,7 +54,7 @@ async def test_app_routes_and_params(tmp_path: Path) -> None:
     )
     _write_server(
         hello,
-        "from consumers.services import HelloService\n"
+        "from consumers.api import HelloService\n"
         "from yaaf import Request\n\n"
         "async def get(request: Request, service: HelloService):\n"
         "    return {'message': service.message(), 'path': request.path}\n",
@@ -69,7 +69,7 @@ async def test_app_routes_and_params(tmp_path: Path) -> None:
     )
     _write_server(
         dynamic,
-        "from consumers.services import NameService\n"
+        "from consumers.api import NameService\n"
         "from yaaf.types import Params\n\n"
         "async def get(params: Params, service: NameService):\n"
         "    return {'message': service.greet(params['name'])}\n",

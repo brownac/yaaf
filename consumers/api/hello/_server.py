@@ -1,4 +1,4 @@
-from consumers.services import HelloService
+from consumers.api import HelloService
 from yaaf import Request
 
 

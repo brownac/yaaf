@@ -1,4 +1,4 @@
-"""Generate a consumers/services.py typing module from filesystem routes."""
+"""Generate a consumers/api/__init__.py typing module from filesystem routes."""
 
 from __future__ import annotations
 
@@ -14,7 +14,9 @@ def _is_identifier(segment: str) -> bool:
 
 
 def _camel_case(parts: Iterable[str]) -> str:
-    return "".join(part[:1].upper() + part[1:] for part in parts if part)
+    return "".join(
+        sub[:1].upper() + sub[1:] for part in parts if part for sub in part.split("_") if sub
+    )
 
 
 def _strip_dynamic(segment: str) -> str:
@@ -32,9 +34,11 @@ def _service_alias(route_parts: list[str]) -> str:
 
 def generate_services(consumers_dir: str = "consumers", output_path: str | None = None) -> Path:
     base = Path(consumers_dir)
-    out_path = Path(output_path) if output_path else base / "services.py"
+    out_path = Path(output_path) if output_path else base / "api" / "__init__.py"
 
     if not base.exists():
+        if not out_path.parent.exists():
+            out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(HEADER + "\n__all__ = []\n")
         return out_path
 
@@ -76,5 +80,7 @@ def generate_services(consumers_dir: str = "consumers", output_path: str | None 
     if dynamic_aliases:
         lines.append("\n# Dynamic routes use Protocol stubs (invalid import paths).\n")
 
+    if not out_path.parent.exists():
+        out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("".join(lines))
     return out_path

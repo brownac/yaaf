@@ -63,7 +63,7 @@ In `_server.py`, export functions named after HTTP methods (lowercase): `get`, `
 Example `_server.py`:
 
 ```python
-from consumers.services import HelloService
+from consumers.api import HelloService
 from yaaf import Request
 from yaaf.types import Params
 
@@ -75,7 +75,7 @@ async def get(request: Request, service: HelloService, params: Params):
 In `_service.py`, expose a module-level `service` instance (or a callable like `Service` or `get_service`). Services are registered and can be injected into other services or handlers:
 
 ```python
-from consumers.services import UsersService
+from consumers.api import UsersService
 
 
 class Service:
@@ -115,7 +115,7 @@ service = Service()
 
 `consumers/api/hello/_service.py`
 ```python
-from yaaf.services import UsersService
+from consumers.api import UsersService
 
 
 class Service:
@@ -131,7 +131,7 @@ service = Service
 
 `consumers/api/hello/_server.py`
 ```python
-from consumers.services import HelloService
+from consumers.api import HelloService
 from yaaf import Request
 
 
@@ -155,7 +155,7 @@ python scripts/bump_version.py
 
 ## Service Type Generation
 
-Every `yaaf` command regenerates `consumers/services.py` for type-checking. You can also run it explicitly:
+Every `yaaf` command regenerates `consumers/api/__init__.py` for type-checking. You can also run it explicitly:
 
 ```bash
 yaaf gen-services

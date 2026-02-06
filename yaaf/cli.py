@@ -23,7 +23,7 @@ def main() -> None:
     serve_parser.add_argument("--consumers-dir", default="consumers")
     serve_parser.set_defaults(command="serve")
 
-    gen_parser = subparsers.add_parser("gen-services", help="Generate consumers/services.py")
+    gen_parser = subparsers.add_parser("gen-services", help="Generate consumers/api/__init__.py")
     gen_parser.add_argument("--consumers-dir", default="consumers")
     gen_parser.add_argument("--output", default=None)
     gen_parser.set_defaults(command="gen-services")

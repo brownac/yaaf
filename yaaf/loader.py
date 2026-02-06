@@ -72,7 +72,7 @@ def discover_routes(consumers_dir: str) -> tuple[list[RouteTarget], ServiceRegis
     service_aliases: dict[Path, list[str]] = {}
 
     for root, _dirs, files in os.walk(base):
-        if "_server.py" not in files or "_service.py" not in files:
+        if "_server.py" not in files:
             continue
 
         root_path = Path(root)
@@ -90,7 +90,8 @@ def discover_routes(consumers_dir: str) -> tuple[list[RouteTarget], ServiceRegis
             aliases.append(route_parts[-1])
         service_aliases[root_path] = [alias for alias in aliases if alias]
 
-        service_modules[root_path] = _load_module(root_path / "_service.py", "service")
+        if "_service.py" in files:
+            service_modules[root_path] = _load_module(root_path / "_service.py", "service")
         server_modules[root_path] = _load_module(root_path / "_server.py", "server")
 
     registry = ServiceRegistry(by_type={}, by_alias={})

@@ -1,4 +1,4 @@
-from consumers.services import NameService
+from consumers.api import NameService
 from yaaf.types import Params
 
 

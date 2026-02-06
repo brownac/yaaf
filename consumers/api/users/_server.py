@@ -1,4 +1,4 @@
-from consumers.services import UsersService
+from consumers.api import UsersService
 from yaaf.types import Params
 
 
