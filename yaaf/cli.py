@@ -38,7 +38,19 @@ def main() -> None:
         return
 
     generate_services(consumers_dir=args.consumers_dir)
-    uvicorn.run(args.app, host=args.host, port=args.port, reload=args.reload)
+    
+    # If using the default yaaf app, create it with the custom consumers_dir
+    if args.app == "yaaf.app:app":
+        from .app import App
+        app = App(consumers_dir=args.consumers_dir)
+    else:
+        # For custom apps, use the specified app path
+        import importlib
+        module_path, app_name = args.app.split(":")
+        module = importlib.import_module(module_path)
+        app = getattr(module, app_name)
+    
+    uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)
 
 
 if __name__ == "__main__":
