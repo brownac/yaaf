@@ -161,3 +161,35 @@ def test_app_uses_custom_consumers_dir_for_route_discovery(tmp_path: Path) -> No
     # Verify routes were discovered from the custom directory
     assert len(app._routes) > 0
     assert any("test" in route.route_parts for route in app._routes)
+
+
+def test_loader_module_loading_with_custom_consumers_dir(tmp_path: Path) -> None:
+    """Test that _load_module works correctly with custom consumers directory names."""
+    from yaaf.loader import _load_module, discover_routes
+    
+    # Create a custom consumers directory with a different name
+    custom_consumers = tmp_path / "my_custom_api"
+    api_dir = custom_consumers / "api" / "test"
+    api_dir.mkdir(parents=True)
+    
+    (api_dir / "_service.py").write_text("class CustomService: pass\nservice = CustomService()")
+    (api_dir / "_server.py").write_text("async def get(): return 'test'")
+    
+    # Test route discovery with custom consumers directory
+    routes, registry = discover_routes(str(custom_consumers))
+    
+    # Verify routes were discovered
+    assert len(routes) == 1
+    assert routes[0].route_parts == ["test"]
+    assert "GET" in routes[0].handlers
+    
+    # Verify service was registered with correct module path
+    assert "CustomService" in registry.by_alias or "test" in registry.by_alias
+    
+    # Test module loading directly
+    service_module = _load_module(api_dir / "_service.py", "service", str(custom_consumers))
+    assert hasattr(service_module, "service")
+    assert hasattr(service_module, "CustomService")
+    
+    server_module = _load_module(api_dir / "_server.py", "server", str(custom_consumers))
+    assert hasattr(server_module, "get")

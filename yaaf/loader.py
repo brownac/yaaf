@@ -28,18 +28,35 @@ class RouteTarget:
     segment_count: int
 
 
-def _load_module(path: Path, name_prefix: str) -> ModuleType:
+def _load_module(path: Path, name_prefix: str, consumers_dir: str) -> ModuleType:
     """Load a Python module from an explicit file path."""
     # Convert the file path to a module path relative to the consumers directory
     # This preserves the original module path for type annotation compatibility
     parts = path.parts
-    if "consumers" in parts:
-        consumers_index = parts.index("consumers")
-        module_parts = parts[consumers_index:]
-        module_name = ".".join(module_parts[:-1] + (path.stem,))
+    consumers_path = Path(consumers_dir).parts
+    if len(consumers_path) == 1:
+        consumers_name = consumers_path[0]
+        if consumers_name in parts:
+            consumers_index = parts.index(consumers_name)
+            module_parts = parts[consumers_index:]
+            module_name = ".".join(module_parts[:-1] + (path.stem,))
+        else:
+            # Fallback to hashed name if not in consumers directory
+            module_name = f"yaaf_{name_prefix}_{abs(hash(path))}"
     else:
-        # Fallback to hashed name if not in consumers directory
-        module_name = f"yaaf_{name_prefix}_{abs(hash(path))}"
+        # For nested paths, find the consumers directory in the path
+        try:
+            consumers_index = parts.index(consumers_path[-1])
+            # Verify this is actually the consumers directory by checking the full path
+            path_to_consumers = Path(*parts[:consumers_index + 1])
+            if path_to_consumers.samefile(Path(consumers_dir)):
+                module_parts = parts[consumers_index:]
+                module_name = ".".join(module_parts[:-1] + (path.stem,))
+            else:
+                module_name = f"yaaf_{name_prefix}_{abs(hash(path))}"
+        except (ValueError, OSError):
+            # Fallback to hashed name if consumers directory not found or path doesn't exist
+            module_name = f"yaaf_{name_prefix}_{abs(hash(path))}"
     
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
@@ -101,8 +118,8 @@ def discover_routes(consumers_dir: str) -> tuple[list[RouteTarget], ServiceRegis
         service_aliases[root_path] = [alias for alias in aliases if alias]
 
         if "_service.py" in files:
-            service_modules[root_path] = _load_module(root_path / "_service.py", "service")
-        server_modules[root_path] = _load_module(root_path / "_server.py", "server")
+            service_modules[root_path] = _load_module(root_path / "_service.py", "service", consumers_dir)
+        server_modules[root_path] = _load_module(root_path / "_server.py", "server", consumers_dir)
 
     registry = ServiceRegistry(by_type={}, by_alias={})
     resolver = DependencyResolver(registry)
