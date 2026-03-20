@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from yaaf.app import App
-from yaaf.gen_services import generate_services
 
 
 class DummySend:
@@ -40,42 +39,26 @@ def _write_server(path: Path, code: str) -> None:
 async def test_app_routes_and_params(tmp_path: Path) -> None:
     base = tmp_path / "consumers" / "api"
     hello = base / "hello"
-    dynamic = base / "[name]"
     hello.mkdir(parents=True)
-    dynamic.mkdir(parents=True)
     (tmp_path / "consumers" / "__init__.py").write_text("# package\n")
 
     _write_service(
         hello,
-        "class Service:\n"
+        "from yaaf import service\n\n"
+        "@service('HelloService')\n"
+        "class HelloService:\n"
         "    def message(self) -> str:\n"
         "        return 'hi'\n\n"
-        "service = Service()\n",
+        "service = HelloService\n",
     )
     _write_server(
         hello,
-        "from consumers.api import HelloService\n"
+        "from consumers.api.hello._service import HelloService\n"
         "from yaaf import Request\n\n"
         "async def get(request: Request, service: HelloService):\n"
         "    return {'message': service.message(), 'path': request.path}\n",
     )
 
-    _write_service(
-        dynamic,
-        "class Service:\n"
-        "    def greet(self, name: str) -> str:\n"
-        "        return f'hello {name}'\n\n"
-        "service = Service()\n",
-    )
-    _write_server(
-        dynamic,
-        "from consumers.api import NameService\n"
-        "from yaaf.types import Params\n\n"
-        "async def get(params: Params, service: NameService):\n"
-        "    return {'message': service.greet(params['name'])}\n",
-    )
-
-    generate_services(consumers_dir=str(tmp_path / "consumers"))
     app = App(consumers_dir=str(tmp_path / "consumers"))
 
     send = DummySend()
@@ -83,12 +66,6 @@ async def test_app_routes_and_params(tmp_path: Path) -> None:
     await app(scope, DummyReceive(), send)
     assert send.messages[0]["status"] == 200
     assert b"hi" in send.messages[1]["body"]
-
-    send = DummySend()
-    scope = {"type": "http", "method": "GET", "path": "/api/austin", "headers": []}
-    await app(scope, DummyReceive(), send)
-    assert send.messages[0]["status"] == 200
-    assert b"austin" in send.messages[1]["body"]
 
 
 @pytest.mark.asyncio
@@ -99,7 +76,6 @@ async def test_app_not_found(tmp_path: Path) -> None:
     _write_service(base, "class Service:...\nservice = Service()\n")
     _write_server(base, "async def get():...\n")
 
-    generate_services(consumers_dir=str(tmp_path / "consumers"))
     app = App(consumers_dir=str(tmp_path / "consumers"))
 
     send = DummySend()

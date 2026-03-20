@@ -1,7 +1,10 @@
-from consumers.api import UsersService
+from yaaf import service
+
+from consumers.api.users._service import UsersService
 
 
-class Service:
+@service("HelloService")
+class HelloService:
     def __init__(self, users: UsersService) -> None:
         self._users = users
 
@@ -10,4 +13,4 @@ class Service:
         return f"Hello from yaaf, {user['name']}"
 
 
-service = Service
+service = HelloService

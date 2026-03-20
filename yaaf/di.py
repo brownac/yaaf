@@ -3,26 +3,70 @@
 from __future__ import annotations
 
 import inspect
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from collections.abc import Mapping
 from typing import Any, Callable, TypeVar
 
 T = TypeVar("T")
 
+
+def service(name: str | None = None, *, aliases: list[str] | None = None):
+    """Decorator to mark a class as a yaaf service.
+
+    Args:
+        name: Custom service name for DI resolution. Defaults to class name.
+        aliases: Additional names this service can be resolved by.
+
+    Example:
+        @service("CustomName", aliases=["custom", "cn"])
+        class MyService:
+            def do_something(self) -> str:
+                return "done"
+
+        # In a handler, inject by type or any alias:
+        async def get(service: MyService) -> dict:
+            # or: service: "CustomName", service: "custom", etc.
+            return {"result": service.do_something()}
+    """
+
+    def decorator(cls: type[T]) -> type[T]:
+        setattr(cls, "__yaaf_service__", True)
+        setattr(cls, "__yaaf_service_name__", name)
+        setattr(cls, "__yaaf_service_aliases__", aliases or [])
+        return cls
+
+    return decorator
+
+
+def _get_service_metadata(cls: type) -> tuple[str | None, list[str]]:
+    """Extract yaaf service metadata from a class."""
+    name = getattr(cls, "__yaaf_service_name__", None)
+    aliases: list[str] = getattr(cls, "__yaaf_service_aliases__", [])
+    return name, aliases
+
+
 @dataclass
 class ServiceRegistry:
     """Global registry for services, keyed by type and name variants."""
-    by_type: dict[type[Any], Any]
-    by_alias: dict[str, Any]
 
-    def register(self, instance: T, aliases: list[str]) -> T:
-        """Register a service instance by type and alias names."""
-        self.by_type[type(instance)] = instance
-        type_name = type(instance).__name__
-        if type_name:
-            self.by_alias[type_name] = instance
-        for alias in aliases:
+    by_type: dict[type[Any], Any] = field(default_factory=dict)
+    by_alias: dict[str, Any] = field(default_factory=dict)
+
+    def register(self, instance: T, aliases: list[str] | None = None) -> T:
+        """Register a service instance by type and name variants."""
+        inst_type = type(instance)
+        self.by_type[inst_type] = instance
+
+        name, yaaf_aliases = _get_service_metadata(inst_type)
+        resolved_name = name or inst_type.__name__
+        self.by_alias[resolved_name] = instance
+
+        for alias in yaaf_aliases or []:
             self.by_alias[alias] = instance
+
+        for alias in aliases or []:
+            self.by_alias[alias] = instance
+
         return instance
 
     def resolve(self, annotation: type | None) -> Any | None:
@@ -30,22 +74,22 @@ class ServiceRegistry:
         if isinstance(annotation, str):
             return self.by_alias.get(annotation)
         if annotation is not None:
-            # Direct type match
             if annotation in self.by_type:
                 return self.by_type[annotation]
-            
-            # Check for protocol/base class relationships
+
+            if annotation in self.by_type.values():
+                return annotation
+
             for registered_type, instance in self.by_type.items():
                 try:
-                    # Check if registered type is a subclass of the annotation
                     if issubclass(registered_type, annotation):
                         return instance
                 except (TypeError, AttributeError):
-                    # Handle cases where issubclass fails (e.g., for Protocol types)
                     pass
-            
-            # Try to resolve by name as fallback
-            alias = getattr(annotation, "__name__", "")
+
+            alias = getattr(annotation, "__name__", "") or getattr(
+                getattr(annotation, "__class__", None), "__name__", ""
+            )
             if alias and alias in self.by_alias:
                 return self.by_alias[alias]
         return None
@@ -53,6 +97,7 @@ class ServiceRegistry:
 
 class DependencyResolver:
     """Resolve function arguments from a registry and contextual values."""
+
     def __init__(self, registry: ServiceRegistry) -> None:
         """Create a resolver bound to a service registry."""
         self.registry = registry

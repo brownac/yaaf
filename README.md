@@ -47,96 +47,87 @@ consumers/
     hello/
       _server.py
       _service.py
-    [name]/
+    name_dynamic/
       _server.py
       _service.py
 ```
 
-## Handlers and Services
+## Services (`_service.py`)
 
-In `_server.py`, export functions named after HTTP methods (lowercase): `get`, `post`, etc. The function signature is resolved via dependency injection:
-
-- `request` gives you the `yaaf.Request` object.
-- `params` or `path_params` provides dynamic route parameters.
-- Services are injected by type annotations.
-
-Example `_server.py`:
+Use the `@service` decorator to mark and register services:
 
 ```python
-from consumers.api import HelloService
+from yaaf import service
+
+
+@service("UsersService")
+class UsersService:
+    def get_user(self, user_id: str) -> dict:
+        return {"id": user_id, "name": "User"}
+
+
+service = UsersService
+```
+
+**Decorator Options**:
+- `name`: Custom service name for DI resolution (defaults to class name)
+- `aliases`: Additional names to resolve by
+
+## Handlers (`_server.py`)
+
+Export lowercase HTTP method functions. Import services directly from their source modules:
+
+```python
 from yaaf import Request
 from yaaf.types import Params
+from consumers.api.users._service import UsersService
 
 
-async def get(request: Request, service: HelloService, params: Params):
-    return {"message": service.message(), "path": request.path, "params": params}
+async def get(request: Request, params: Params, service: UsersService) -> dict:
+    user_id = params.get("id", "1")
+    return service.get_user(user_id)
 ```
 
-In `_service.py`, expose a module-level `service` instance (or a callable like `Service` or `get_service`). Services are registered and can be injected into other services or handlers:
+**Injectable Parameters**:
+- `request` gives you the `yaaf.Request` object
+- `params` or `path_params` provides dynamic route parameters
+- Services are injected by type annotations
+
+## Service Dependencies
+
+Services can depend on other services via constructor injection:
 
 ```python
-from consumers.api import UsersService
+# users/_service.py
+from yaaf import service
 
 
-class Service:
-    def __init__(self, users: UsersService) -> None:
-        self._users = users
-
-    def message(self) -> str:
-        user = self._users.get_user("1")
-        return f"Hello from yaaf, {user['name']}"
-
-service = Service
-```
-
-## Service-to-Service Injection
-
-Services can depend on other services via type annotations. Example layout:
-
-```text
-consumers/
-  api/
-    users/
-      _service.py
-      _server.py
-    hello/
-      _service.py
-      _server.py
-```
-
-`consumers/api/users/_service.py`
-```python
-class Service:
+@service("UsersService")
+class UsersService:
     def get_user(self, user_id: str) -> dict:
-        return {"id": user_id, "name": "Austin"}
+        return {"id": user_id, "name": "User"}
 
-service = Service()
+
+service = UsersService
 ```
 
-`consumers/api/hello/_service.py`
 ```python
-from consumers.api import UsersService
+# hello/_service.py
+from yaaf import service
+from consumers.api.users._service import UsersService
 
 
-class Service:
+@service("HelloService")
+class HelloService:
     def __init__(self, users: UsersService) -> None:
         self._users = users
 
     def message(self) -> str:
         user = self._users.get_user("1")
-        return f"Hello from yaaf, {user['name']}"
-
-service = Service
-```
-
-`consumers/api/hello/_server.py`
-```python
-from consumers.api import HelloService
-from yaaf import Request
+        return f"Hello, {user['name']}"
 
 
-async def get(request: Request, service: HelloService):
-    return {"message": service.message(), "path": request.path}
+service = HelloService
 ```
 
 ## Running Another App
@@ -152,13 +143,3 @@ This project uses calendar-based versions with a timestamp (UTC). To bump the ve
 ```bash
 python scripts/bump_version.py
 ```
-
-## Service Type Generation
-
-Every `yaaf` command regenerates `consumers/api/__init__.py` for type-checking. You can also run it explicitly:
-
-```bash
-yaaf gen-services
-```
-
-Dynamic route segments like `[name]` get Protocol stubs in the generated file since they are not valid import paths.

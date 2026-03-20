@@ -11,13 +11,14 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from .di import DependencyResolver, ServiceRegistry
+from .di import DependencyResolver, ServiceRegistry, _get_service_metadata
 from .types import Handler
 
 
 @dataclass
 class RouteTarget:
     """A discovered filesystem route and its handlers/services."""
+
     pattern: re.Pattern[str]
     route_parts: list[str]
     param_names: list[str]
@@ -48,7 +49,7 @@ def _load_module(path: Path, name_prefix: str, consumers_dir: str) -> ModuleType
         try:
             consumers_index = parts.index(consumers_path[-1])
             # Verify this is actually the consumers directory by checking the full path
-            path_to_consumers = Path(*parts[:consumers_index + 1])
+            path_to_consumers = Path(*parts[: consumers_index + 1])
             if path_to_consumers.samefile(Path(consumers_dir)):
                 module_parts = parts[consumers_index:]
                 module_name = ".".join(module_parts[:-1] + (path.stem,))
@@ -57,7 +58,7 @@ def _load_module(path: Path, name_prefix: str, consumers_dir: str) -> ModuleType
         except (ValueError, OSError):
             # Fallback to hashed name if consumers directory not found or path doesn't exist
             module_name = f"yaaf_{name_prefix}_{abs(hash(path))}"
-    
+
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Could not load module from {path}")
@@ -66,21 +67,39 @@ def _load_module(path: Path, name_prefix: str, consumers_dir: str) -> ModuleType
     return module
 
 
-def _collect_services(module: ModuleType, resolver: DependencyResolver) -> Any | None:
-    """Create a service from a module, if it exposes one."""
+def _collect_services(
+    module: ModuleType, resolver: DependencyResolver
+) -> tuple[Any | None, list[str]]:
+    """Create a service from a module, if it exposes one.
+
+    Returns:
+        Tuple of (instance, aliases) where aliases come from @service decorator metadata.
+    """
+    instance = None
+    service_cls = None
+
     if hasattr(module, "service"):
-        instance = getattr(module, "service")
-        if instance is not None:
-            if callable(instance):
-                return resolver.call(instance, {})
-            return instance
-    if hasattr(module, "get_service") and callable(module.get_service):
-        return resolver.call(module.get_service, {})
-    if hasattr(module, "Service"):
+        inst = getattr(module, "service")
+        if inst is not None:
+            if callable(inst):
+                instance = resolver.call(inst, {})
+            else:
+                instance = inst
+            if hasattr(module, "Service"):
+                service_cls = module.Service
+    elif hasattr(module, "get_service") and callable(module.get_service):
+        instance = resolver.call(module.get_service, {})
+    elif hasattr(module, "Service"):
         service_cls = module.Service
         if callable(service_cls):
-            return resolver.call(service_cls, {})
-    return None
+            instance = resolver.call(service_cls, {})
+
+    if instance is not None:
+        inst_type = type(instance)
+        name, aliases = _get_service_metadata(inst_type)
+        return instance, aliases or []
+
+    return None, []
 
 
 def discover_routes(consumers_dir: str) -> tuple[list[RouteTarget], ServiceRegistry]:
@@ -108,8 +127,12 @@ def discover_routes(consumers_dir: str) -> tuple[list[RouteTarget], ServiceRegis
             continue
         api_index = parts.index("api")
         route_parts = list(parts[api_index + 1 :])
-        pattern, param_names, static_count, segment_count = build_pattern(route_parts, prefix="api")
-        targets.append((root_path, route_parts, param_names, pattern, static_count, segment_count))
+        pattern, param_names, static_count, segment_count = build_pattern(
+            route_parts, prefix="api"
+        )
+        targets.append(
+            (root_path, route_parts, param_names, pattern, static_count, segment_count)
+        )
 
         route_key = "_".join(route_parts)
         aliases = [route_key, _service_alias(route_parts)]
@@ -118,8 +141,12 @@ def discover_routes(consumers_dir: str) -> tuple[list[RouteTarget], ServiceRegis
         service_aliases[root_path] = [alias for alias in aliases if alias]
 
         if "_service.py" in files:
-            service_modules[root_path] = _load_module(root_path / "_service.py", "service", consumers_dir)
-        server_modules[root_path] = _load_module(root_path / "_server.py", "server", consumers_dir)
+            service_modules[root_path] = _load_module(
+                root_path / "_service.py", "service", consumers_dir
+            )
+        server_modules[root_path] = _load_module(
+            root_path / "_server.py", "server", consumers_dir
+        )
 
     registry = ServiceRegistry(by_type={}, by_alias={})
     resolver = DependencyResolver(registry)
@@ -131,28 +158,44 @@ def discover_routes(consumers_dir: str) -> tuple[list[RouteTarget], ServiceRegis
         remaining: list[tuple[Path, ModuleType]] = []
         for path, module in unresolved:
             try:
-                instance = _collect_services(module, resolver)
+                instance, decorator_aliases = _collect_services(module, resolver)
             except TypeError:
                 instance = None
+                decorator_aliases = []
             if instance is None:
                 remaining.append((path, module))
                 continue
             service_instances[path] = instance
-            registry.register(instance, aliases=service_aliases.get(path, []))
+
+            for alias in service_aliases.get(path, []):
+                registry.by_alias[alias] = instance
+
+            for alias in decorator_aliases:
+                registry.by_alias[alias] = instance
+
             progress = True
         if not progress:
             missing = [str(path) for path, _ in remaining]
-            raise RuntimeError(f"Unresolved service dependencies in: {', '.join(missing)}")
+            raise RuntimeError(
+                f"Unresolved service dependencies in: {', '.join(missing)}"
+            )
         unresolved = remaining
 
     routes: list[RouteTarget] = []
-    for root_path, route_parts, param_names, pattern, static_count, segment_count in targets:
+    for (
+        root_path,
+        route_parts,
+        param_names,
+        pattern,
+        static_count,
+        segment_count,
+    ) in targets:
         server_module = server_modules[root_path]
         handlers: dict[str, Handler] = {}
         for method in ("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"):
             func = getattr(server_module, method.lower(), None)
             if callable(func):
-                handlers[method] = func
+                handlers[method] = func  # type: ignore[assignment]
         compiled = re.compile(pattern)
         service_instance = service_instances.get(root_path)
         routes.append(
@@ -161,14 +204,16 @@ def discover_routes(consumers_dir: str) -> tuple[list[RouteTarget], ServiceRegis
                 route_parts=route_parts,
                 param_names=param_names,
                 handlers=handlers,
-        services=registry,
-        service=service_instance,
-        static_count=static_count,
-        segment_count=segment_count,
-    )
+                services=registry,
+                service=service_instance,
+                static_count=static_count,
+                segment_count=segment_count,
+            )
         )
 
-    routes.sort(key=lambda route: (route.static_count, route.segment_count), reverse=True)
+    routes.sort(
+        key=lambda route: (route.static_count, route.segment_count), reverse=True
+    )
 
     static_routes = [route for route in routes if not route.param_names]
     dynamic_routes = [route for route in routes if route.param_names]
@@ -186,7 +231,9 @@ def discover_routes(consumers_dir: str) -> tuple[list[RouteTarget], ServiceRegis
     return routes, registry
 
 
-def build_pattern(route_parts: list[str], prefix: str) -> tuple[str, list[str], int, int]:
+def build_pattern(
+    route_parts: list[str], prefix: str
+) -> tuple[str, list[str], int, int]:
     """Build a regex pattern and metadata for a route path."""
     if not route_parts:
         return rf"^/{re.escape(prefix)}$", [], 0, 0
@@ -217,7 +264,11 @@ def _service_alias(route_parts: list[str]) -> str:
 
     def camel_case(parts: list[str]) -> str:
         return "".join(
-            sub[:1].upper() + sub[1:] for part in parts if part for sub in part.split("_") if sub
+            sub[:1].upper() + sub[1:]
+            for part in parts
+            if part
+            for sub in part.split("_")
+            if sub
         )
 
     parts = [strip_dynamic(part) for part in route_parts]

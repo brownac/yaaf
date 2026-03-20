@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from yaaf.di import DependencyResolver, ServiceRegistry
+from yaaf.di import DependencyResolver, ServiceRegistry, service
 
 
 class AlphaService:
@@ -42,3 +42,21 @@ def test_dependency_resolver_errors_on_missing_dependency() -> None:
 
     with pytest.raises(TypeError):
         resolver.call(handler, {})
+
+
+def test_service_decorator() -> None:
+    @service("CustomService", aliases=["custom", "cs"])
+    class MyService:
+        def get_value(self) -> str:
+            return "decorated"
+
+    registry = ServiceRegistry(by_type={}, by_alias={})
+    resolver = DependencyResolver(registry)
+
+    instance = resolver.call(MyService, {})
+    registry.register(instance)
+
+    assert registry.resolve(MyService) is instance
+    assert registry.by_alias.get("CustomService") is instance
+    assert registry.by_alias.get("custom") is instance
+    assert registry.by_alias.get("cs") is instance

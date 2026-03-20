@@ -15,6 +15,7 @@ from .types import ASGIScope, ASGIReceive, ASGISend, Params
 @dataclass
 class Request:
     """Represents an HTTP request within the ASGI app."""
+
     scope: ASGIScope
     body: bytes
     path_params: Params
@@ -55,7 +56,9 @@ class App:
             self._routes, self._registry = discover_routes(self._consumers_dir)
             self._resolver = DependencyResolver(self._registry)
 
-    async def __call__(self, scope: ASGIScope, receive: ASGIReceive, send: ASGISend) -> None:
+    async def __call__(
+        self, scope: ASGIScope, receive: ASGIReceive, send: ASGISend
+    ) -> None:
         """ASGI entrypoint."""
         self._ensure_routes()
         if scope.get("type") != "http":
@@ -98,6 +101,7 @@ class App:
             "params": path_params,
             "path_params": path_params,
         }
+        assert self._resolver is not None
         result = self._resolver.call(handler, context)
         if inspect.isawaitable(result):
             result = await result

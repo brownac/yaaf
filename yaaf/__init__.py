@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-__all__ = ["App", "Request", "Response", "app"]
+__all__ = ["App", "Request", "Response", "app", "service"]
 
 
 def __getattr__(name: str) -> Any:
@@ -16,7 +16,11 @@ def __getattr__(name: str) -> Any:
         from .responses import Response
 
         return Response
-    raise AttributeError(f"module {__name__} has no attribute {name}")
+    if name == "service":
+        from .di import service
+
+        return service
+    raise AttributeError(f"module {__name__} has no attribute '{name}'")
 
 
 def __dir__() -> list[str]:
