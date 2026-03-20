@@ -6,7 +6,7 @@ A minimal Python ASGI app scaffold that discovers routes from the filesystem. It
 
 ## Design Goals and Opinions
 
-- **Filesystem-first routing.** Routes are inferred from the directory structure under `consumers/**/api` rather than declared with decorators. This keeps routing discoverable by looking at the tree.
+- **Filesystem-first routing.** Routes are inferred from the `api/` directory structure rather than declared with decorators. This keeps routing discoverable by looking at the tree.
 - **Explicit endpoint files.** Each route has `_server.py` and `_service.py` to separate request handling from domain logic.
 - **Dependency injection without wiring.** Services are registered automatically and injected by name/type, so handlers and services focus on behavior, not setup.
 - **Static-first routing precedence.** Static routes always win over dynamic segments, with warnings when a dynamic route would overlap a static route.
@@ -25,31 +25,34 @@ yaaf --reload
 
 Example routes:
 
-- `GET /api/hello`
-- `GET /api/<name>` (dynamic segment)
+- `GET /hello`
+- `GET /<name>` (dynamic segment)
 
 ## Routing Model
 
-Routes are inferred from the directory structure under any `consumers/**/api` directory.
+Routes are inferred from the `api/` directory structure.
 
 - Every route directory must contain `_server.py` and `_service.py`.
-- The route path is `/api/...` plus the sub-path after `api/`.
+- The route path is `/...` plus the sub-path under `api/`.
 - Dynamic segments use `[param]` directory names and are exposed as `params`/`path_params`.
+- Catch-all segments use `[...filepath]` for multi-segment paths.
 
 Example layout:
 
 ```text
-consumers/
-  api/
-    users/
+api/
+  users/
+    [id]/
       _server.py
       _service.py
-    hello/
-      _server.py
-      _service.py
-    name_dynamic/
-      _server.py
-      _service.py
+    _server.py
+    _service.py
+  hello/
+    _server.py
+    _service.py
+  name_dynamic/
+    _server.py
+    _service.py
 ```
 
 ## Services (`_service.py`)
@@ -80,7 +83,7 @@ Export lowercase HTTP method functions. Import services directly from their sour
 ```python
 from yaaf import Request
 from yaaf.types import Params
-from consumers.api.users._service import UsersService
+from api.users._service import UsersService
 
 
 async def get(request: Request, params: Params, service: UsersService) -> dict:
@@ -114,7 +117,7 @@ service = UsersService
 ```python
 # hello/_service.py
 from yaaf import service
-from consumers.api.users._service import UsersService
+from api.users._service import UsersService
 
 
 @service("HelloService")
@@ -129,6 +132,24 @@ class HelloService:
 
 service = HelloService
 ```
+
+## Static File Serving
+
+Use `yaaf_static` to serve files from a directory:
+
+```python
+# api/static/[...filepath]/_server.py
+from yaaf.types import Params
+from yaaf_static import static_files
+
+async def get(path_params: Params, static=static_files("public")):
+    return static(path_params)
+```
+
+The `static_files()` function returns a handler that:
+- Serves files relative to the specified directory
+- Returns 404 if file not found
+- Blocks path traversal attacks (`../`)
 
 ## Running Another App
 

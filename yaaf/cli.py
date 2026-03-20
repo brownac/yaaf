@@ -16,14 +16,14 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8000, type=int)
     parser.add_argument("--reload", action="store_true")
-    parser.add_argument("--consumers-dir", default="consumers")
+    parser.add_argument("--root", default="api", dest="root_dir")
 
     args = parser.parse_args()
 
     if args.app == "yaaf.app:app":
         from .app import App
 
-        app = App(consumers_dir=args.consumers_dir)
+        app = App(root_dir=args.root_dir)
     else:
         module_path, app_name = args.app.split(":")
         module = importlib.import_module(module_path)

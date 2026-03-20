@@ -8,11 +8,13 @@ from yaaf.loader import build_pattern, discover_routes
 
 
 def test_build_pattern_static_and_dynamic() -> None:
-    pattern, params, static_count, segment_count = build_pattern(["users", "[id]"] , prefix="api")
+    pattern, params, static_count, segment_count = build_pattern(
+        ["users", "[id]"], prefix=""
+    )
     assert params == ["id"]
     assert static_count == 1
     assert segment_count == 2
-    assert pattern.startswith("^/api/")
+    assert pattern.startswith("^/users/")
 
 
 def test_discover_routes_missing_dir(tmp_path: Path) -> None:
@@ -22,8 +24,10 @@ def test_discover_routes_missing_dir(tmp_path: Path) -> None:
     assert registry.by_alias == {}
 
 
-def test_discover_routes_dynamic_shadow_warning(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    base = tmp_path / "consumers" / "api"
+def test_discover_routes_dynamic_shadow_warning(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    base = tmp_path / "api"
     hello = base / "hello"
     dynamic = base / "[name]"
     hello.mkdir(parents=True)
@@ -34,6 +38,6 @@ def test_discover_routes_dynamic_shadow_warning(tmp_path: Path, capsys: pytest.C
     (dynamic / "_service.py").write_text("class Service:...\nservice = Service()\n")
     (dynamic / "_server.py").write_text("async def get():...\n")
 
-    discover_routes(str(tmp_path / "consumers"))
+    discover_routes(str(tmp_path / "api"))
     captured = capsys.readouterr()
-    assert "dynamic route /api/[name] matches static route /api/hello" in captured.out
+    assert "dynamic route /[name] matches static route /hello" in captured.out

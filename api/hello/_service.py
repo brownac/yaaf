@@ -1,6 +1,6 @@
 from yaaf import service
 
-from consumers.api.users._service import UsersService
+from api.users._service import UsersService
 
 
 @service("HelloService")

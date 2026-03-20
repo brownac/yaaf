@@ -9,7 +9,7 @@
 
 **yaaf** = "Yet Another ASGI Framework"
 
-A minimal Python ASGI web framework with filesystem-first routing. Routes are discovered from the directory structure under `consumers/**/api` rather than declared with decorators.
+A minimal Python ASGI web framework with filesystem-first routing. Routes are discovered from the `api/` directory structure rather than declared with decorators.
 
 ### Quick Facts
 - **Language**: Python >= 3.13
@@ -32,6 +32,7 @@ A minimal Python ASGI web framework with filesystem-first routing. Routes are di
 | `yaaf/cli.py` | CLI entrypoint |
 | `yaaf/responses.py` | Response class (text, json methods), as_response() normalizer |
 | `yaaf/types.py` | Type aliases (ASGIScope, ASGIReceive, ASGISend, Params, Handler) |
+| `yaaf_static/__init__.py` | Static file serving via `static_files()` function |
 
 ### Request Flow
 
@@ -57,32 +58,41 @@ Response.send() - sends to ASGI client
 
 ### 1. Route Structure
 
-Routes live under `consumers/**/api/`. Each route directory requires:
+Routes live under `api/`. Each route directory requires:
 
 ```
-consumers/api/<route>/
+api/<route>/
     _server.py   # Handler functions (required)
     _service.py  # Service class (optional)
 ```
 
 **Dynamic Routes**: Use `[param]` naming:
 ```
-consumers/api/users/[id]/_server.py  →  route: /api/users/<id>
+api/users/[id]/_server.py  →  route: /users/<id>
+```
+
+**Catch-all Routes**: Use `[...filepath]` for multi-segment paths:
+```
+api/static/[...filepath]/_server.py  →  route: /static/*
 ```
 
 **Example Structure**:
 ```
-consumers/
-  api/
-    hello/
-      _server.py    → GET /api/hello
-      _service.py
-    users/
-      _server.py    → GET /api/users, /api/users/<id>
-      _service.py
-    name_dynamic/
-      _server.py    → GET /api/<name>
-      _service.py
+api/
+  hello/
+    _server.py    → GET /hello
+    _service.py
+  users/
+    [id]/
+      _server.py  → GET /users/<id>
+    _server.py    → GET /users
+    _service.py
+  name_dynamic/
+    _server.py    → GET /<name>
+    _service.py
+  static/
+    [...filepath]/
+      _server.py  → GET /static/*
 ```
 
 ### 2. Handler Pattern (`_server.py`)
@@ -92,7 +102,7 @@ Export lowercase HTTP method functions. Import services directly from their sour
 ```python
 from yaaf import Request
 from yaaf.types import Params
-from consumers.api.hello._service import HelloService  # Direct import
+from api.hello._service import HelloService  # Direct import
 
 async def get(request: Request, service: HelloService, params: Params) -> dict:
     """Handler for GET requests."""
@@ -105,12 +115,22 @@ async def post(request: Request, service: HelloService) -> dict:
 
 **For Dynamic Routes**: Use direct imports (directory names must be valid Python identifiers):
 ```python
-# consumers/api/name_dynamic/_server.py
+# api/name_dynamic/_server.py
 from yaaf.types import Params
-from consumers.api.name_dynamic._service import NameService
+from api.name_dynamic._service import NameService
 
 async def get(params: Params, service: NameService) -> dict:
     return {"message": service.greet(params["name"])}
+```
+
+**For Catch-all Routes**: Access the full path via `params["filepath"]`:
+```python
+# api/static/[...filepath]/_server.py
+from yaaf.types import Params
+from yaaf_static import static_files
+
+async def get(path_params: Params, static=static_files("public")):
+    return static(path_params)
 ```
 
 **Supported HTTP Methods**: `get`, `post`, `put`, `delete`, `patch`, `options`, `head`
@@ -165,7 +185,7 @@ service = UsersService
 ```python
 # hello/_service.py
 from yaaf import service
-from consumers.api.users._service import UsersService  # Direct import
+from api.users._service import UsersService  # Direct import
 
 @service("HelloService")
 class HelloService:
@@ -200,7 +220,7 @@ Import services directly from their source modules. Directory names must be vali
 
 ```python
 # Direct import from service module
-from consumers.api.hello._service import HelloService
+from api.hello._service import HelloService
 ```
 
 ---
@@ -264,9 +284,9 @@ while unresolved:
 ### Pattern Building
 
 ```python
-build_pattern(["users", "[id]"], prefix="api")
+build_pattern(["users", "[id]"], prefix="")
 # Returns:
-#   pattern: "^/api/users/([^/]+)$"
+#   pattern: "^/users/([^/]+)$"
 #   param_names: ["id"]
 #   static_count: 1
 #   segment_count: 2
@@ -281,7 +301,7 @@ routes.sort(key=lambda r: (r.static_count, r.segment_count), reverse=True)
 
 **Warning**: If a dynamic route would match a static route:
 ```
-Warning: dynamic route /api/[name] matches static route /api/hello
+Warning: dynamic route /[name] matches static route /hello
 ```
 
 ---
@@ -295,8 +315,8 @@ Tests use pytest with tmp_path for isolation:
 ```python
 @pytest.mark.asyncio
 async def test_example(tmp_path: Path) -> None:
-    # Create consumer structure
-    base = tmp_path / "consumers" / "api" / "test"
+    # Create api structure
+    base = tmp_path / "api" / "test"
     base.mkdir(parents=True)
     
     # Write files
@@ -304,7 +324,7 @@ async def test_example(tmp_path: Path) -> None:
     (base / "_server.py").write_text("async def get(): return 'ok'")
     
     # Test
-    app = App(consumers_dir=str(tmp_path / "consumers"))
+    app = App(consumers_dir=str(tmp_path / "api"))
     # ...
 ```
 
@@ -339,7 +359,7 @@ pytest tests/ -v
 ## CLI Commands
 
 ```bash
-yaaf [--app module:app] [--host HOST] [--port PORT] [--reload] [--consumers-dir DIR]
+yaaf [--app module:app] [--host HOST] [--port PORT] [--reload] [--root DIR]
 ```
 
 ---
@@ -388,15 +408,20 @@ python scripts/bump_version.py
 
 ## File Checklist for New Route
 
-To add a new route `/api/my-resource/<id>`:
+To add a new route `/my-resource/<id>`:
 
-- [ ] Create `consumers/api/my-resource/[id]/_server.py`
-- [ ] Create `consumers/api/my-resource/[id]/_service.py`
+- [ ] Create `api/my-resource/[id]/_server.py`
+- [ ] Create `api/my-resource/[id]/_service.py`
 - [ ] Export `async def get|post|etc()` in `_server.py`
 - [ ] Export `service` (instance or class) in `_service.py`
-- [ ] Import service types from `consumers.api`
-- [ ] Run `yaaf gen-services` (or use `yaaf` CLI)
+- [ ] Import service types from `api`
 - [ ] Add tests in `tests/`
+
+To add static file serving at `/static/*`:
+
+- [ ] Create `api/static/[...filepath]/_server.py`
+- [ ] Use `yaaf_static.static_files("public_dir")` to create the handler
+- [ ] Add tests in `tests/test_static.py`
 
 ---
 
@@ -404,7 +429,7 @@ To add a new route `/api/my-resource/<id>`:
 
 ### Simple Handler (No Service)
 ```python
-# consumers/api/status/_server.py
+# api/status/_server.py
 from yaaf import Request
 
 async def get(request: Request) -> dict:
@@ -413,14 +438,24 @@ async def get(request: Request) -> dict:
 
 ### Handler with Service
 ```python
-# consumers/api/greet/_server.py
+# api/greet/_server.py
 from yaaf import Request
 from yaaf.types import Params
-from consumers.api import GreetService
+from api.greet._service import GreetService
 
 async def get(request: Request, params: Params, service: GreetService) -> dict:
     name = params.get("name", "World")
     return {"message": service.greet(name)}
+```
+
+### Handler for Static Files
+```python
+# api/static/[...filepath]/_server.py
+from yaaf.types import Params
+from yaaf_static import static_files
+
+async def get(path_params: Params, static=static_files("public")):
+    return static(path_params)
 ```
 
 ### Handler Returning Different Status
@@ -431,10 +466,13 @@ async def post(request: Request, service: MyService) -> tuple[dict, int]:
 
 ### Service with Multiple Dependencies
 ```python
-# consumers/api/reports/_service.py
-from consumers.api import DatabaseService, CacheService
+# api/reports/_service.py
+from yaaf import service
+from api.database._service import DatabaseService
+from api.cache._service import CacheService
 
-class Service:
+@service("ReportsService")
+class ReportsService:
     def __init__(self, db: DatabaseService, cache: CacheService) -> None:
         self._db = db
         self._cache = cache
@@ -445,7 +483,7 @@ class Service:
             return cached
         return self._db.fetch_report(id)
 
-service = Service
+service = ReportsService
 ```
 
 ---

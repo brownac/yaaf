@@ -29,34 +29,28 @@ class RouteTarget:
     segment_count: int
 
 
-def _load_module(path: Path, name_prefix: str, consumers_dir: str) -> ModuleType:
+def _load_module(path: Path, name_prefix: str, root_dir: str) -> ModuleType:
     """Load a Python module from an explicit file path."""
-    # Convert the file path to a module path relative to the consumers directory
-    # This preserves the original module path for type annotation compatibility
     parts = path.parts
-    consumers_path = Path(consumers_dir).parts
-    if len(consumers_path) == 1:
-        consumers_name = consumers_path[0]
-        if consumers_name in parts:
-            consumers_index = parts.index(consumers_name)
-            module_parts = parts[consumers_index:]
+    root_parts = Path(root_dir).parts
+    if len(root_parts) == 1:
+        root_name = root_parts[0]
+        if root_name in parts:
+            root_index = parts.index(root_name)
+            module_parts = parts[root_index:]
             module_name = ".".join(module_parts[:-1] + (path.stem,))
         else:
-            # Fallback to hashed name if not in consumers directory
             module_name = f"yaaf_{name_prefix}_{abs(hash(path))}"
     else:
-        # For nested paths, find the consumers directory in the path
         try:
-            consumers_index = parts.index(consumers_path[-1])
-            # Verify this is actually the consumers directory by checking the full path
-            path_to_consumers = Path(*parts[: consumers_index + 1])
-            if path_to_consumers.samefile(Path(consumers_dir)):
-                module_parts = parts[consumers_index:]
+            root_index = parts.index(root_parts[-1])
+            path_to_root = Path(*parts[: root_index + 1])
+            if path_to_root.samefile(Path(root_dir)):
+                module_parts = parts[root_index:]
                 module_name = ".".join(module_parts[:-1] + (path.stem,))
             else:
                 module_name = f"yaaf_{name_prefix}_{abs(hash(path))}"
         except (ValueError, OSError):
-            # Fallback to hashed name if consumers directory not found or path doesn't exist
             module_name = f"yaaf_{name_prefix}_{abs(hash(path))}"
 
     spec = importlib.util.spec_from_file_location(module_name, path)
@@ -102,9 +96,9 @@ def _collect_services(
     return None, []
 
 
-def discover_routes(consumers_dir: str) -> tuple[list[RouteTarget], ServiceRegistry]:
-    """Discover route handlers and services rooted under a consumers directory."""
-    base = Path(consumers_dir)
+def discover_routes(root_dir: str) -> tuple[list[RouteTarget], ServiceRegistry]:
+    """Discover route handlers and services rooted under a directory."""
+    base = Path(root_dir)
     if not base.exists():
         return [], ServiceRegistry(by_type={}, by_alias={})
 
@@ -123,12 +117,10 @@ def discover_routes(consumers_dir: str) -> tuple[list[RouteTarget], ServiceRegis
 
         root_path = Path(root)
         parts = root_path.parts
-        if "api" not in parts:
-            continue
-        api_index = parts.index("api")
-        route_parts = list(parts[api_index + 1 :])
+        base_parts = base.parts
+        route_parts = list(parts[len(base_parts) :])
         pattern, param_names, static_count, segment_count = build_pattern(
-            route_parts, prefix="api"
+            route_parts, prefix=""
         )
         targets.append(
             (root_path, route_parts, param_names, pattern, static_count, segment_count)
@@ -142,10 +134,10 @@ def discover_routes(consumers_dir: str) -> tuple[list[RouteTarget], ServiceRegis
 
         if "_service.py" in files:
             service_modules[root_path] = _load_module(
-                root_path / "_service.py", "service", consumers_dir
+                root_path / "_service.py", "service", root_dir
             )
         server_modules[root_path] = _load_module(
-            root_path / "_server.py", "server", consumers_dir
+            root_path / "_server.py", "server", root_dir
         )
 
     registry = ServiceRegistry(by_type={}, by_alias={})
@@ -221,11 +213,11 @@ def discover_routes(consumers_dir: str) -> tuple[list[RouteTarget], ServiceRegis
         for stat in static_routes:
             if dyn.segment_count != stat.segment_count:
                 continue
-            candidate = "/api/" + "/".join(stat.route_parts)
+            candidate = "/" + "/".join(stat.route_parts)
             if dyn.pattern.match(candidate):
                 print(
-                    f"Warning: dynamic route /api/{'/'.join(dyn.route_parts)} matches "
-                    f"static route /api/{'/'.join(stat.route_parts)}"
+                    f"Warning: dynamic route /{'/'.join(dyn.route_parts)} matches "
+                    f"static route /{'/'.join(stat.route_parts)}"
                 )
                 break
     return routes, registry
@@ -234,30 +226,48 @@ def discover_routes(consumers_dir: str) -> tuple[list[RouteTarget], ServiceRegis
 def build_pattern(
     route_parts: list[str], prefix: str
 ) -> tuple[str, list[str], int, int]:
-    """Build a regex pattern and metadata for a route path."""
+    """Build a regex pattern and metadata for a route path.
+
+    Supports:
+        [name]     - Single segment dynamic (matches "value")
+        [...name]  - Catch-all dynamic (matches "path/to/file.txt")
+    """
     if not route_parts:
-        return rf"^/{re.escape(prefix)}$", [], 0, 0
+        if prefix:
+            return rf"^/{re.escape(prefix)}$", [], 0, 0
+        return "^/$", [], 0, 0
 
     param_names: list[str] = []
     pattern_parts: list[str] = []
     static_count = 0
     for part in route_parts:
-        if part.startswith("[") and part.endswith("]"):
+        if part.startswith("[...") and part.endswith("]"):
+            name = part[4:-1]
+            if not name:
+                raise ValueError("Empty catch-all route segment")
+            param_names.append(name)
+            pattern_parts.append(f"(?P<{name}>.*)")
+        elif part.startswith("[") and part.endswith("]"):
             name = part[1:-1]
             if not name:
                 raise ValueError("Empty dynamic route segment")
             param_names.append(name)
-            pattern_parts.append(r"([^/]+)")
+            pattern_parts.append(f"(?P<{name}>[^/]+)")
         else:
             pattern_parts.append(re.escape(part))
             static_count += 1
 
-    pattern = "^/" + re.escape(prefix) + "/" + "/".join(pattern_parts) + "$"
+    if prefix:
+        pattern = "^/" + re.escape(prefix) + "/" + "/".join(pattern_parts) + "$"
+    else:
+        pattern = "^/" + "/".join(pattern_parts) + "$"
     return pattern, param_names, static_count, len(route_parts)
 
 
 def _service_alias(route_parts: list[str]) -> str:
     def strip_dynamic(segment: str) -> str:
+        if segment.startswith("[...") and segment.endswith("]"):
+            return segment[4:-1]
         if segment.startswith("[") and segment.endswith("]"):
             return segment[1:-1]
         return segment

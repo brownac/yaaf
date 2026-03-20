@@ -37,10 +37,10 @@ def _write_server(path: Path, code: str) -> None:
 
 @pytest.mark.asyncio
 async def test_app_routes_and_params(tmp_path: Path) -> None:
-    base = tmp_path / "consumers" / "api"
+    base = tmp_path / "api"
     hello = base / "hello"
     hello.mkdir(parents=True)
-    (tmp_path / "consumers" / "__init__.py").write_text("# package\n")
+    (tmp_path / "api" / "__init__.py").write_text("# package\n")
 
     _write_service(
         hello,
@@ -53,16 +53,16 @@ async def test_app_routes_and_params(tmp_path: Path) -> None:
     )
     _write_server(
         hello,
-        "from consumers.api.hello._service import HelloService\n"
+        "from api.hello._service import HelloService\n"
         "from yaaf import Request\n\n"
         "async def get(request: Request, service: HelloService):\n"
         "    return {'message': service.message(), 'path': request.path}\n",
     )
 
-    app = App(consumers_dir=str(tmp_path / "consumers"))
+    app = App(root_dir=str(tmp_path / "api"))
 
     send = DummySend()
-    scope = {"type": "http", "method": "GET", "path": "/api/hello", "headers": []}
+    scope = {"type": "http", "method": "GET", "path": "/hello", "headers": []}
     await app(scope, DummyReceive(), send)
     assert send.messages[0]["status"] == 200
     assert b"hi" in send.messages[1]["body"]
@@ -70,15 +70,15 @@ async def test_app_routes_and_params(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_app_not_found(tmp_path: Path) -> None:
-    base = tmp_path / "consumers" / "api" / "hello"
+    base = tmp_path / "api" / "hello"
     base.mkdir(parents=True)
-    (tmp_path / "consumers" / "__init__.py").write_text("# package\n")
+    (tmp_path / "api" / "__init__.py").write_text("# package\n")
     _write_service(base, "class Service:...\nservice = Service()\n")
     _write_server(base, "async def get():...\n")
 
-    app = App(consumers_dir=str(tmp_path / "consumers"))
+    app = App(root_dir=str(tmp_path / "api"))
 
     send = DummySend()
-    scope = {"type": "http", "method": "GET", "path": "/api/missing", "headers": []}
+    scope = {"type": "http", "method": "GET", "path": "/missing", "headers": []}
     await app(scope, DummyReceive(), send)
     assert send.messages[0]["status"] == 404

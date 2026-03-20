@@ -44,16 +44,16 @@ class Request:
 class App:
     """Filesystem-routed ASGI interface."""
 
-    def __init__(self, consumers_dir: str = "consumers") -> None:
+    def __init__(self, root_dir: str = "api") -> None:
         """Initialize the app by discovering filesystem routes."""
-        self._consumers_dir = consumers_dir
+        self._root_dir = root_dir
         self._routes = None
         self._registry = None
         self._resolver = None
 
     def _ensure_routes(self) -> None:
         if self._routes is None or self._registry is None or self._resolver is None:
-            self._routes, self._registry = discover_routes(self._consumers_dir)
+            self._routes, self._registry = discover_routes(self._root_dir)
             self._resolver = DependencyResolver(self._registry)
 
     async def __call__(

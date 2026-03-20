@@ -1,7 +1,7 @@
 from yaaf.types import Params
 
 # Preferred: Import directly from the service module
-from consumers.api.users._service import UsersService
+from api.users._service import UsersService
 
 
 async def get(params: Params, service: UsersService) -> dict[str, str]:
