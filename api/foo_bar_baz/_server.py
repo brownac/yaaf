@@ -1,6 +1,11 @@
-# Preferred: Import directly from the service module
-from api.foo_bar_baz._service import FooBarBazService
+from __future__ import annotations
+
+from typing import Protocol
 
 
-async def get(service: FooBarBazService):
+class FooBarBazService(Protocol):
+    def get_name(self) -> str: ...
+
+
+async def get(service: FooBarBazService) -> dict[str, str]:
     return {"message": f"Hello from {service.get_name()}"}

@@ -1,6 +1,12 @@
+from __future__ import annotations
+
+from typing import Protocol
+
 from yaaf.types import Params
 
-from api.name_dynamic._service import NameService
+
+class NameService(Protocol):
+    def greet(self, name: str) -> str: ...
 
 
 async def get(params: Params, service: NameService) -> dict[str, str]:

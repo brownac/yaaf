@@ -1,7 +1,12 @@
+from __future__ import annotations
+
+from typing import Protocol
+
 from yaaf.types import Params
 
-# Preferred: Import directly from the service module
-from api.users._service import UsersService
+
+class UsersService(Protocol):
+    def get_user(self, user_id: str) -> dict[str, str]: ...
 
 
 async def get(params: Params, service: UsersService) -> dict[str, str]:

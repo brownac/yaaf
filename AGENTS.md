@@ -73,7 +73,7 @@ api/users/[id]/_server.py  →  route: /users/<id>
 
 **Catch-all Routes**: Use `[...filepath]` for multi-segment paths:
 ```
-api/static/[...filepath]/_server.py  →  route: /static/*
+api/assets/[...filepath]/_server.py  →  route: /assets/*
 ```
 
 **Example Structure**:
@@ -87,22 +87,30 @@ api/
       _server.py  → GET /users/<id>
     _server.py    → GET /users
     _service.py
-  name_dynamic/
+  [name]/
     _server.py    → GET /<name>
     _service.py
-  static/
+  assets/
     [...filepath]/
-      _server.py  → GET /static/*
+      _server.py  → GET /assets/*
 ```
 
 ### 2. Handler Pattern (`_server.py`)
 
-Export lowercase HTTP method functions. Import services directly from their source modules:
+Export lowercase HTTP method functions. Use `Protocol` to define service interfaces:
 
 ```python
+from __future__ import annotations
+
+from typing import Protocol
+
 from yaaf import Request
 from yaaf.types import Params
-from api.hello._service import HelloService  # Direct import
+
+
+class HelloService(Protocol):
+    def message(self) -> str: ...
+
 
 async def get(request: Request, service: HelloService, params: Params) -> dict:
     """Handler for GET requests."""
@@ -113,27 +121,86 @@ async def post(request: Request, service: HelloService) -> dict:
     return {"status": "created"}
 ```
 
-**For Dynamic Routes**: Use direct imports (directory names must be valid Python identifiers):
-```python
-# api/name_dynamic/_server.py
-from yaaf.types import Params
-from api.name_dynamic._service import NameService
+**Why Protocol?** Using `Protocol` for service type hints:
+- No imports needed from `api/` directory
+- IDE autocomplete works on Protocol methods
+- DI resolver matches by interface compatibility
+- Consistent pattern for all routes (static, dynamic, catch-all)
 
-async def get(params: Params, service: NameService) -> dict:
-    return {"message": service.greet(params["name"])}
-```
-
-**For Catch-all Routes**: Access the full path via `params["filepath"]`:
+**For Catch-all Routes**: Use `[...filepath]` to match multiple path segments:
 ```python
 # api/static/[...filepath]/_server.py
+from __future__ import annotations
+
 from yaaf.types import Params
 from yaaf_static import static_files
+
 
 async def get(path_params: Params, static=static_files("public")):
     return static(path_params)
 ```
 
+This creates routes like `/static/css/style.css` → serves `public/css/style.css`.
+
 **Supported HTTP Methods**: `get`, `post`, `put`, `delete`, `patch`, `options`, `head`
+
+**Injectable Parameters**:
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `request` | `Request` | yaaf Request object (scope, body, path_params) |
+| `params` | `Params` | dict of dynamic route parameters |
+| `path_params` | `Params` | alias for `params` |
+| `<service>` | Any | Auto-injected by type annotation |
+
+### 2b. Static File Serving (`yaaf_static`)
+
+The `yaaf_static` module serves files from a directory with built-in security:
+
+```python
+from yaaf_static import static_files
+
+# Serve from "public" directory with "index.html" as default
+static = static_files("public")
+```
+
+**Route Setup**: Use `[...filepath]` in the directory name to capture the full path:
+
+```
+api/static/[...filepath]/_server.py  →  GET /static/<filepath>
+```
+
+**Features**:
+| Feature | Description |
+|---------|-------------|
+| MIME types | Auto-detected from file extension |
+| Directory index | Serves `index.html` for directory paths |
+| Path traversal protection | Blocks `..` and absolute paths |
+| Security | Resolved paths must stay within static root |
+
+**Example Structure**:
+```
+api/assets/[...filepath]/_server.py  →  GET /assets/*
+public/
+  index.html      → GET /assets/
+  css/
+    style.css     → GET /assets/css/style.css
+  js/
+    app.js        → GET /assets/js/app.js
+```
+
+**Custom Index File**:
+```python
+from yaaf_static import static_files
+
+static = static_files("public", index="home.html")
+```
+
+**Return Values**:
+| Status | Meaning |
+|--------|---------|
+| 200 | File served with correct MIME type |
+| 403 | Path traversal attempt blocked |
+| 404 | File not found |
 
 **Injectable Parameters**:
 | Parameter | Type | Description |
@@ -216,11 +283,13 @@ Handlers can return multiple types (normalized by `as_response()`):
 
 ### 5. Type Checking
 
-Import services directly from their source modules. Directory names must be valid Python identifiers:
+Use `Protocol` to define service interfaces. This keeps handlers decoupled from service implementations:
 
 ```python
-# Direct import from service module
-from api.hello._service import HelloService
+from typing import Protocol
+
+class HelloService(Protocol):
+    def message(self) -> str: ...
 ```
 
 ---
@@ -439,9 +508,17 @@ async def get(request: Request) -> dict:
 ### Handler with Service
 ```python
 # api/greet/_server.py
+from __future__ import annotations
+
+from typing import Protocol
+
 from yaaf import Request
 from yaaf.types import Params
-from api.greet._service import GreetService
+
+
+class GreetService(Protocol):
+    def greet(self, name: str) -> str: ...
+
 
 async def get(request: Request, params: Params, service: GreetService) -> dict:
     name = params.get("name", "World")
@@ -450,13 +527,23 @@ async def get(request: Request, params: Params, service: GreetService) -> dict:
 
 ### Handler for Static Files
 ```python
-# api/static/[...filepath]/_server.py
+# api/assets/[...filepath]/_server.py
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from yaaf.types import Params
 from yaaf_static import static_files
 
-async def get(path_params: Params, static=static_files("public")):
-    return static(path_params)
+if TYPE_CHECKING:
+    from yaaf_static import StaticHandler
+
+
+async def get(path_params: Params, assets: StaticHandler = static_files("public")) -> dict:
+    return assets(path_params)
 ```
+
+Note: The `static_files()` factory is called at import time and the resulting handler is injected as a default parameter.
 
 ### Handler Returning Different Status
 ```python

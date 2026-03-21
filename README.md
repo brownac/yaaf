@@ -50,7 +50,7 @@ api/
   hello/
     _server.py
     _service.py
-  name_dynamic/
+  [name]/
     _server.py
     _service.py
 ```
