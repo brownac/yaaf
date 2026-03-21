@@ -27,6 +27,7 @@ Example routes:
 
 - `GET /hello`
 - `GET /<name>` (dynamic segment)
+- `GET /assets/*` (static files)
 
 ## Routing Model
 
@@ -53,6 +54,9 @@ api/
   [name]/
     _server.py
     _service.py
+  assets/
+    [...filepath]/
+      _server.py
 ```
 
 ## Services (`_service.py`)
@@ -78,18 +82,27 @@ service = UsersService
 
 ## Handlers (`_server.py`)
 
-Export lowercase HTTP method functions. Import services directly from their source modules:
+Export lowercase HTTP method functions. Use `Protocol` to define service interfaces:
 
 ```python
+from __future__ import annotations
+
+from typing import Protocol
+
 from yaaf import Request
 from yaaf.types import Params
-from api.users._service import UsersService
+
+
+class UsersService(Protocol):
+    def get_user(self, user_id: str) -> dict: ...
 
 
 async def get(request: Request, params: Params, service: UsersService) -> dict:
     user_id = params.get("id", "1")
     return service.get_user(user_id)
 ```
+
+**Why Protocol?** No imports needed from `api/` directory, IDE autocomplete works, and the DI resolver matches by interface.
 
 **Injectable Parameters**:
 - `request` gives you the `yaaf.Request` object
@@ -138,18 +151,23 @@ service = HelloService
 Use `yaaf_static` to serve files from a directory:
 
 ```python
-# api/static/[...filepath]/_server.py
+# api/assets/[...filepath]/_server.py
+from __future__ import annotations
+
 from yaaf.types import Params
 from yaaf_static import static_files
 
-async def get(path_params: Params, static=static_files("public")):
-    return static(path_params)
+
+async def get(path_params: Params, assets=static_files("public")):
+    return assets(path_params)
 ```
 
 The `static_files()` function returns a handler that:
 - Serves files relative to the specified directory
 - Returns 404 if file not found
 - Blocks path traversal attacks (`../`)
+
+Files are served at `/assets/*` (e.g., `GET /assets/css/style.css`).
 
 ## Running Another App
 
